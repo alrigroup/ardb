@@ -1,0 +1,10 @@
+.staging/
+build/
+*.o
+*.a
+*.so
+*.arapp
+*.arlib
+*.tmp
+*.log
+.DS_Store
