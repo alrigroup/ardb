@@ -16,7 +16,7 @@ ALRIGROUP@APPMAKE
     "steps": [
       {
         "name": "cc",
-        "cmd": "gcc -O2 -I. -I../../ALRIOS/core -I../../ALRIOS/arkernel/include -I../../ALRIOS/arkernel/os/include -o $STAGING/ardb ardb_entry.c ardb_config.c ardb_http.c ardb_pgwire.c ardb_storage_engine.c ardb_backend.c ardb_auth.c ardb_firewall.c ardb_audit.c -L$ARCORE/lib -larkernel -lssl -lcrypto -lpthread"
+        "cmd": "gcc -O2 -Isrc -I../../ALRIOS/core -I../../ALRIOS/arkernel/include -I../../ALRIOS/arkernel/os/include -o $STAGING/ardb src/ardb_entry.c src/ardb_config.c src/ardb_http.c src/ardb_pgwire.c src/ardb_storage_engine.c src/ardb_backend.c src/ardb_auth.c src/ardb_firewall.c src/ardb_audit.c -L$ARCORE/lib -larkernel -lssl -lcrypto -lpthread"
       }
     ]
   },
