@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/alrigroup/alrios"><img alt="ALRIOS" src="https://img.shields.io/badge/Powered%20by-ALRIOS-blue?style=flat-square" /></a>
   <img alt="Language" src="https://img.shields.io/badge/language-C-00599C?style=flat-square" />
-  <img alt="License" src="https://img.shields.io/badge/license-Proprietary-red?style=flat-square" />
+  <img alt="License" src="https://img.shields.io/badge/license-ARGLP-green?style=flat-square" />
 </p>
 
 ---
@@ -52,4 +52,4 @@ ARDB is a core component of the [ALRIOS Operating System](https://github.com/alr
 
 This project is licensed under the **ARGLP** (ALRI Group License Permissive) - see the [LICENSE-ARGLP](https://github.com/alrigroup/licenses/blob/main/LICENSE-ARGLP) file for full terms.
 
-*Non-commercial use and distribution only. Commercial use requires express written authorization from ALRI Group.*
+*Commercial and enterprise use is permitted. Resale of the software itself is prohibited.*
