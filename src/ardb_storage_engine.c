@@ -16,6 +16,11 @@
 #include <time.h>
 #ifndef _WIN32
 #include <unistd.h>
+#else
+#include <io.h>
+#ifndef F_OK
+#define F_OK 0
+#endif
 #endif
 
 #define MAX_COMPANIES 16

@@ -12,6 +12,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <openssl/sha.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static char g_audit_log_path[256] = "storage/ardb/audit.log";
 static char g_prev_hash[65] = "0000000000000000000000000000000000000000000000000000000000000000";
