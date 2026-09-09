@@ -62,4 +62,11 @@ This project is licensed under the **ARGLP** (ALRI Group License Permissive) - s
 - **Holding & Asset Management**: **[ALRI Group](https://alrigroup.com)** *(Holding Company)*
 - **Licensing**: Governed by **ARGLP** owned by ALRI Group.
 
-<p align="center">© 2026 ALRI Group and its affiliates. Engineered by ALRI Development.</p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.alrigroup.com/ARD-SF-W.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://cdn.alrigroup.com/ARD-SF-B.png">
+    <img alt="ARD Seal" src="https://cdn.alrigroup.com/ARD-SF-W.png" width="80">
+  </picture><br>
+  <sub>© 2026 ALRI Group and its affiliates. Engineered by ALRI Development.</sub>
+</p>
