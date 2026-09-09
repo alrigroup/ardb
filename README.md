@@ -53,3 +53,13 @@ ARDB is a core component of the [ALRIOS Operating System](https://github.com/alr
 This project is licensed under the **ARGLP** (ALRI Group License Permissive) - see the [LICENSE-ARGLP](https://github.com/alrigroup/licenses/blob/main/LICENSE-ARGLP) file for full terms.
 
 *Commercial and enterprise use is permitted. Resale of the software itself is prohibited.*
+
+---
+
+## 🏢 Credits & Governance
+
+- **Engineering & Architecture**: **[ALRI Development](https://alrigroup.com)** *(Software & Systems Division)*
+- **Holding & Asset Management**: **[ALRI Group](https://alrigroup.com)** *(Holding Company)*
+- **Licensing**: Governed by **ARGLP** owned by ALRI Group.
+
+<p align="center">© 2026 ALRI Group and its affiliates. Engineered by ALRI Development.</p>
