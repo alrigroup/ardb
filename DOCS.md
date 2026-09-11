@@ -2,7 +2,7 @@
 
 *Sovereign Data Guardian & SQL Engine Proxy*
 
-*Version: 0.2.01 | Engineered by ALRI Development | Governed by ALRI GROUP © 2026 | License: ARGLP*
+*Version: 0.2.02 | Engineered by ALRI Development | Governed by ALRI GROUP © 2026 | License: ARGLP*
 
 ---
 
@@ -574,7 +574,7 @@ gcc -O2 \
 ```json
 {
   "name": "ardb",
-  "version": "0.2.01",
+  "version": "0.2.02",
   "runtime": "native",
   "entry": "ardb",
   "services": [{"name": "ardb", "entry": "ardb"}],
@@ -586,6 +586,6 @@ gcc -O2 \
 
 ---
 
-*Document generated from source code analysis of ARDB v0.2.01.*
+*Document generated from source code analysis of ARDB v0.2.02.*
 *Engineered by ALRI Development. Governed by ALRI GROUP © 2026 — All rights reserved.*
 *License: ARGLP (ALRI GROUP LICENSE PERMISSIVE — Version 2)*

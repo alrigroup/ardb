@@ -2,7 +2,7 @@ ALRIGROUP@APPMAKE
 {
   "name": "ardb",
   "bin": "ardb.arapp",
-  "version": "0.2.01",
+  "version": "0.2.02",
   "runtime": "native",
   "entry": "ardb",
   "platforms": {
