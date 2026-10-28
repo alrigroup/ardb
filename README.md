@@ -2,36 +2,38 @@
   <img src="https://raw.githubusercontent.com/alrigroup/.github/main/alrigroup.svg" width="120" />
 </p>
 
-<h1 align="center">ARDB</h1>
-<p align="center"><strong>Native Linear Database Engine</strong></p>
+<h1 align="center">ARDB v2</h1>
+<p align="center"><strong>Universal Multi-Model Sovereign Storage & Audit Engine</strong></p>
 <p align="center">
   <a href="https://github.com/alrigroup/alrios"><img alt="ALRIOS" src="https://img.shields.io/badge/Powered%20by-ALRIOS-blue?style=flat-square" /></a>
-  <img alt="Language" src="https://img.shields.io/badge/language-C-00599C?style=flat-square" />
+  <img alt="Language" src="https://img.shields.io/badge/language-C11-00599C?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-ARGLP-green?style=flat-square" />
+  <img alt="Standard" src="https://img.shields.io/badge/standard-ALRI--SPEC--DATA--2026--ARDB--V2-purple?style=flat-square" />
 </p>
 
 ---
 
 ## Overview
 
-**ARDB** is a high-performance, native database engine built in pure C for the [ALRIOS](https://github.com/alrigroup/alrios) operating system. It provides a lightweight, embedded storage solution with a PostgreSQL-compatible wire protocol (PGWire).
+**ARDB v2** is the sovereign multi-model persistence and low-latency cache authority for the [ALRIOS](https://github.com/alrigroup/alrios) operating system. It provides an autonomous, embedded multi-model engine written in pure C11 serving both relational SQL (PGWire v3.0 on port 5432) and in-memory cache (Redis RESP on port 6379) with zero external daemon dependencies.
 
 ### Features
 
-- 💾 **Custom Storage Engine** — Purpose-built linear storage with direct disk I/O
-- 🔌 **PGWire Protocol** — Connect using any PostgreSQL client or driver
-- 🔐 **Built-in Authentication** — Native user/password and token-based auth
-- 🧱 **Firewall** — Query-level access control and IP filtering
-- 📊 **Audit Logging** — Full audit trail of all database operations
-- 🌐 **HTTP API** — RESTful management interface for administration
-- ⚡ **Zero Dependencies** — No external database engine; pure C implementation
+- 🔌 **PGWire Protocol v3.0 (Port 5432)** — Connect directly with DBeaver, Prisma, TypeORM, or psql with real SQL DDL/DML support
+- ⚡ **Redis RESP Cache Engine (Port 6379)** — Low-latency concurrent in-memory cache supporting `PING`, `GET`, `SET`, `EXPIRE`, `TTL`, `DEL`
+- 💾 **Autonomous Embedded Persistence** — 100% standalone relational engine powered by integrated SQLite with WAL2 mode
+- 🛡️ **Zero-Unattributed I/O Mandate (Axiom I)** — Blocks any query without an attested provenance envelope (`ARDB_ERR_UNATTESTED_QUERY`)
+- 🧱 **AST SQL Firewall & Namespace Isolation** — AST-level query inspection blocking destructive DDL (`42501`) and isolating application namespaces
+- 📊 **Total Read & Write Forensic Auditing** — Every single command (including `SELECT` and `GET`) records rows processed into an immutable SHA-256 continuous hash chain
+- 🌐 **HTTP REST API (Port 5435)** — Embedded RESTful interface for web-based queries and administration
+- 🔒 **Zero-Trust Engineering** — Strict C11 compilation (`-Wall -Wextra -Wpedantic -Werror`), zero banned libc APIs, socket timeouts on all network endpoints
 
-## Building
+## Building & Packaging
 
-Requires the [ALRIOS SDK](https://github.com/alrigroup/alrios) installed:
+Requires the ALRIOS toolchain:
 
 ```bash
-armake build ardb
+armake build . ardb.arapp
 ```
 
 ## Architecture

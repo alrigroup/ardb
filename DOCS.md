@@ -1,56 +1,59 @@
-# ARDB — Technical Reference Manual
+# ARDB v2 — Technical Reference Manual
 
-*Sovereign Data Guardian & SQL Engine Proxy*
+*Universal Multi-Model Sovereign Storage & Audit Engine*
 
-*Version: 0.2.02 | Engineered by ALRI Development | Governed by ALRI GROUP © 2026 | License: ARGLP*
+*Version: 2.0.0-PROD | Engineered by ALRI Development | Governed by ALRI GROUP © 2026 | License: ARGLP*
 
 ---
 
 ## Table of Contents
 
 - [1. Overview & Sovereign Architecture](#1-overview--sovereign-architecture)
-- [2. Architecture & SQL Pipeline](#2-architecture--sql-pipeline)
+- [2. Universal Multi-Model Architecture](#2-universal-multi-model-architecture)
 - [3. Configuration Reference (ardb.cfg)](#3-configuration-reference-ardbcfg)
 - [4. Module Reference](#4-module-reference)
   - [4.1 Entry Point (ardb_entry)](#41-entry-point-ardb_entry)
   - [4.2 Authentication (ardb_auth)](#42-authentication-ardb_auth)
   - [4.3 SQL Firewall & AST (ardb_firewall)](#43-sql-firewall--ast-ardb_firewall)
   - [4.4 PGWire Protocol (ardb_pgwire)](#44-pgwire-protocol-ardb_pgwire)
-  - [4.5 Backend Connector (ardb_backend)](#45-backend-connector-ardb_backend)
-  - [4.6 Storage Engine (ardb_storage_engine)](#46-storage-engine-ardb_storage_engine)
-  - [4.7 Audit Log (ardb_audit)](#47-audit-log-ardb_audit)
-  - [4.8 HTTP Management API (ardb_http)](#48-http-management-api-ardb_http)
-  - [4.9 Configuration Parser (ardb_config)](#49-configuration-parser-ardb_config)
-- [5. SQL Firewall Deep Dive](#5-sql-firewall-deep-dive)
-- [6. PGWire Protocol v3.0 Implementation](#6-pgwire-protocol-v30-implementation)
-- [7. Blockchain-Style Forensic Audit Log](#7-blockchain-style-forensic-audit-log)
-- [8. App Table Isolation & Multi-Tenancy](#8-app-table-isolation--multi-tenancy)
-- [9. CLI Governance (`alrios ardb`)](#9-cli-governance-alrios-ardb)
-- [10. Build & Packaging](#10-build--packaging)
+  - [4.5 Redis RESP Engine (ardb_redis)](#45-redis-resp-engine-ardb_redis)
+  - [4.6 Autonomous Embedded Storage Engine (ardb_storage_engine)](#46-autonomous-embedded-storage-engine-ardb_storage_engine)
+  - [4.7 Provenance Envelope (ardb_provenance)](#47-provenance-envelope-ardb_provenance)
+  - [4.8 Audit Log & Hash Chain (ardb_audit)](#48-audit-log--hash-chain-ardb_audit)
+  - [4.9 HTTP Management API (ardb_http)](#49-http-management-api-ardb_http)
+  - [4.10 Configuration Parser (ardb_config)](#410-configuration-parser-ardb_config)
+- [5. Zero-Unattributed I/O & Provenance Envelope](#5-zero-unattributed-io--provenance-envelope)
+- [6. PGWire Protocol v3.0 Implementation (Port 5432)](#6-pgwire-protocol-v30-implementation-port-5432)
+- [7. Redis RESP Engine (Port 6379)](#7-redis-resp-engine-port-6379)
+- [8. Total Read & Write Forensic Auditing](#8-total-read--write-forensic-auditing)
+- [9. Autonomous Embedded Relational Persistence (SQLite/WAL2)](#9-autonomous-embedded-relational-persistence-sqlitewal2)
+- [10. CLI Governance (`alrios ardb`)](#10-cli-governance-alrios-ardb)
+- [11. Build & Packaging](#11-build--packaging)
 
 ---
 
 ## 1. Overview & Sovereign Architecture
 
-**ARDB (ALRI Data Guardian)** is the sovereign database security proxy and execution engine for the ALRIOS platform. It provides a zero-trust execution barrier between all database clients (microservices, web applications, ORMs, DBeaver, psql) and the isolated physical PostgreSQL database instance.
+**ARDB v2 (Universal Multi-Model Sovereign Storage & Audit Engine)** is the autonomous persistence and high-speed cache authority for the ALRIOS platform. It provides a zero-trust execution barrier between all database clients (microservices, web applications, ORMs, DBeaver, redis-cli) and embedded relational and key-value memory data.
 
-### Core Architectural Mandate
+### Core Architectural Mandates
 
-> **The physical PostgreSQL database never listens on external interfaces.**  
-> It binds strictly to loopback (default: `127.0.0.1:5433`). Every inbound SQL interaction must traverse the ARDB proxy pipeline on port `5432` (PGWire) or port `5435` (HTTP REST).
+1. **Zero External Daemon Dependency**: ARDB operates 100% autonomously without external PostgreSQL daemons on port 5433. All relational persistence is powered by an embedded SQLite engine operating in WAL2 mode.
+2. **Zero-Unattributed I/O Mandate (Axiom I)**: Every data command requires an attested provenance envelope (`[app_origin, actor_id, tenant_id, timestamp_nanos]`). Unattested queries are categorically rejected with `ARDB_ERR_UNATTESTED_QUERY` (`58004`).
+3. **Total Read and Write Auditing (Axiom II)**: Every command, including read operations (`SELECT`, `GET`), records row counts and delta metrics in an immutable cryptographic SHA-256 continuous hash chain.
 
 ### Key Features
 
 | Feature | Specification |
 |---|---|
-| Native Protocol | PostgreSQL Wire Protocol v3.0 (`PG_MSG_STARTUP_V3`) |
-| Isolation | Physical PostgreSQL on `127.0.0.1:5433` (unreachable from outside) |
-| SQL Firewall | AST inspection, destructive DDL blocking, tenant injection |
-| Multi-Tenancy | Automatic `SET LOCAL alri.tenant_id = '...'` injection |
-| App Table ACL | Table namespace ownership + Shared App Groups |
-| Audit Trail | Immutable SHA-256 hash-chain (blockchain-style non-repudiation) |
-| Session Security | Ephemeral 4-hour tokens with 2FA TOTP support |
-| REST API | Embedded HTTP server for JSON query execution |
+| Relational Protocol | PostgreSQL Wire Protocol v3.0 (`port 5432`) |
+| Cache Protocol | Redis RESP v2 / v3 (`port 6379`) |
+| Management Protocol | HTTP REST API (`port 5435`) |
+| Storage Engine | Embedded SQLite3 with WAL journal mode (`storage/<app>/data.db`) |
+| Identity Binding | Mandatory Provenance Context (`ardb_provenance_context_t`) |
+| SQL Firewall | AST inspection, destructive DDL blocking (`42501`), app namespace isolation |
+| Forensic Audit | Immutable SHA-256 continuous hash chain (`storage/ardb/audit.log`) |
+| Engineering Standard | Strict C11 (`-Wall -Wextra -Wpedantic -Werror`), Zero Banned Libc APIs |
 
 ---
 
@@ -551,22 +554,22 @@ alrios ardb audit tail
 
 ---
 
-## 10. Build & Packaging
+## 11. Build & Packaging
 
 ### Compilation
 
-ARDB compiles as a native binary packaged into `ardb.arapp`:
+ARDB v2 compiles under strict C11 (`-std=c11 -Wall -Wextra -Wpedantic -Werror`):
 
 ```bash
-gcc -O2 \
-  -Isrc -I../../ALRIOS/core \
-  -I../../ALRIOS/arkernel/include \
-  -I../../ALRIOS/arkernel/os/include \
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -O2 \
+  -Isrc -I$ARCORE/include \
   -o $STAGING/ardb \
   src/ardb_entry.c src/ardb_config.c src/ardb_http.c \
-  src/ardb_pgwire.c src/ardb_storage_engine.c src/ardb_backend.c \
+  src/ardb_pgwire.c src/ardb_redis.c src/ardb_provenance.c \
+  src/ardb_storage_engine.c src/ardb_backend.c \
   src/ardb_auth.c src/ardb_firewall.c src/ardb_audit.c \
-  -L$ARCORE/lib -larkernel -lssl -lcrypto -lpthread
+  -L$ARCORE/lib -Wl,--start-group -larkernel -larhal -larlog -laripc_v2 -Wl,--end-group \
+  -lsqlite3 -lssl -lcrypto -lpthread
 ```
 
 ### .arapp Manifest (`ardb.arappmake`)
@@ -574,18 +577,17 @@ gcc -O2 \
 ```json
 {
   "name": "ardb",
-  "version": "0.2.02",
+  "bin": "ardb.arapp",
+  "version": "2.0.0",
   "runtime": "native",
   "entry": "ardb",
-  "services": [{"name": "ardb", "entry": "ardb"}],
   "files": ["ardb", "ardb.cfg"],
-  "description": "Banco de dados nativo linear com protocolo PGWire e Firewall AST",
-  "commands": ["status", "cfg reload", "auth login", "auth revoke", "user add", "audit tail", "audit verify"]
+  "description": "Motor Soberano Multi-Modelo ARDB v2 (PGWire 5432, Redis RESP 6379, Audit SHA-256)"
 }
 ```
 
 ---
 
-*Document generated from source code analysis of ARDB v0.2.02.*
-*Engineered by ALRI Development. Governed by ALRI GROUP © 2026 — All rights reserved.*
+*Document generated from source code specification ALRI-SPEC-DATA-2026-ARDB-V2.*  
+*Engineered by ALRI Development. Governed by ALRI GROUP © 2026 — All rights reserved.*  
 *License: ARGLP (ALRI GROUP LICENSE PERMISSIVE — Version 2)*

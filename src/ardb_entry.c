@@ -1,15 +1,18 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #include "ardb_config.h"
 #include "ardb_http.h"
 #include "ardb_pgwire.h"
+#include "ardb_redis.h"
 #include "ardb_backend.h"
+#include "ardb_storage_engine.h"
 #include "ardb_auth.h"
 #include "ardb_firewall.h"
 #include "ardb_audit.h"
@@ -29,6 +32,7 @@ static void handle_sig(int s) {
     g_app_running = 0;
     ardb_http_server_stop();
     ardb_pgwire_server_stop();
+    ardb_redis_server_stop();
 }
 
 /* Handle IPC queries received from CLI 'alrios ardb <cmd>' */
@@ -39,7 +43,7 @@ static void handle_ardb_ipc_query(int fd, const char *payload, int payload_len) 
 
     char q[512] = {0};
     int qlen = payload_len < (int)sizeof(q) - 1 ? payload_len : (int)sizeof(q) - 1;
-    memcpy(q, payload, qlen);
+    memcpy(q, payload, (size_t)qlen);
     q[qlen] = '\0';
 
     const char *p = q;
@@ -59,15 +63,18 @@ static void handle_ardb_ipc_query(int fd, const char *payload, int payload_len) 
 
     if (strcmp(cmd, "status") == 0) {
         rlen = snprintf(resp, sizeof(resp),
-            "[ALRI DB] Sovereign Database Guardian Status:\n"
+            "[ALRI DB v2] Sovereign Multi-Model Engine Status:\n"
             "  State: RUNNING\n"
-            "  PG-Wire Port: %d (Active)\n"
-            "  HTTP REST API: %s (Port %d, Route: %s)\n"
+            "  PG-Wire Protocol (SQL): Port %d (Active)\n"
+            "  Redis RESP Cache Engine: %s (Port %d)\n"
+            "  HTTP REST API Gateway: %s (Port %d, Route: %s)\n"
+            "  Relational Persistence: AUTONOMOUS EMBEDDED (SQLite/WAL2)\n"
+            "  Zero-Unattributed I/O: ENFORCED (Mandatory Provenance Envelope)\n"
             "  SQL Firewall: %s\n"
             "  Forensic Audit Log: %s\n",
             cfg->server_port,
-            ardb_http_is_running() ? "ENABLED" : "DISABLED",
-            cfg->http_port, cfg->http_route_prefix,
+            ardb_redis_is_running() ? "ACTIVE" : "DISABLED", cfg->redis_port,
+            ardb_http_is_running() ? "ENABLED" : "DISABLED", cfg->http_port, cfg->http_route_prefix,
             cfg->sql_firewall,
             cfg->audit_log);
     } else if (strcmp(cmd, "cfg") == 0) {
@@ -101,9 +108,9 @@ static void handle_ardb_ipc_query(int fd, const char *payload, int payload_len) 
                     "[ALRI DB] Authenticated user '%s' successfully!\n"
                     "  Session Token: %s\n"
                     "  TTL: 4 hours (Zero-Knowledge Session)\n"
-                    "  Host: 127.0.0.1 | Port: %d | Database: alrios_db\n\n"
-                    "Use this token as the password in DBeaver, or in X-ARDB-Token HTTP Header.\n",
-                    target, tok, cfg->server_port);
+                    "  PGWire Port: %d | Redis Port: %d | Database: ardb_master\n\n"
+                    "Use this token as the password in DBeaver/redis-cli, or in X-ARDB-Token header.\n",
+                    target, tok, cfg->server_port, cfg->redis_port);
             } else {
                 rlen = snprintf(resp, sizeof(resp), "[ALRI DB] Error: User '%s' not found or inactive.\n", target);
             }
@@ -119,11 +126,11 @@ static void handle_ardb_ipc_query(int fd, const char *payload, int payload_len) 
         }
     } else if (strcmp(cmd, "user") == 0) {
         char sub[32] = {0};
-        char u[64] = {0}, p[64] = {0}, t[64] = {0}, r[32] = "operator";
-        int parsed = sscanf(args, "%31s %63s %63s %63s %31s", sub, u, p, t, r);
+        char u[64] = {0}, p_val[64] = {0}, t[64] = {0}, r_val[32] = "operator";
+        int parsed = sscanf(args, "%31s %63s %63s %63s %31s", sub, u, p_val, t, r_val);
         if (strcmp(sub, "add") == 0 && parsed >= 4) {
-            ardb_auth_add_user(u, p, t, r);
-            rlen = snprintf(resp, sizeof(resp), "[ALRI DB] User '%s' created for tenant '%s' with role '%s'.\n", u, t, r);
+            ardb_auth_add_user(u, p_val, t, r_val);
+            rlen = snprintf(resp, sizeof(resp), "[ALRI DB] User '%s' created for tenant '%s' with role '%s'.\n", u, t, r_val);
         } else {
             rlen = snprintf(resp, sizeof(resp), "usage: user add <user> <pass> <tenant> [role]");
         }
@@ -162,17 +169,16 @@ static void handle_ardb_ipc_query(int fd, const char *payload, int payload_len) 
             int ok = ardb_audit_verify_integrity(cfg->audit_log, err, sizeof(err));
             if (ok == 0) {
                 rlen = snprintf(resp, sizeof(resp),
-                    "[ALRI DB] Auditing forensic integrity chain...\n"
+                    "[ARDB-AUDIT] Auditing forensic integrity chain...\n"
                     "  [PASS] 100%% of cryptographic log hashes verified. Zero tampering detected.\n");
             } else {
                 rlen = snprintf(resp, sizeof(resp),
-                    "[ALRI DB] Auditing forensic integrity chain...\n"
+                    "[ARDB-AUDIT] Auditing forensic integrity chain...\n"
                     "  [FAIL] Cryptographic log hash chain error: %s\n", err);
             }
         } else {
             rlen = snprintf(resp, sizeof(resp),
-                "[ALRI DB] Streaming forensic audit logs (tail):\n"
-                "  [LIVE] Listening for PG-Wire connections...\n");
+                "[ARDB-AUDIT] Forensic audit log is active at %s\n", cfg->audit_log);
         }
     } else if (strcmp(cmd, "ping") == 0) {
         rlen = snprintf(resp, sizeof(resp), "pong");
@@ -237,24 +243,32 @@ int main(int argc, char **argv) {
     signal(SIGINT, handle_sig);
     signal(SIGTERM, handle_sig);
 
-    alri_print_force(CYN "[ALRI DB]" RST " Starting Sovereign Database Guardian Service...\n");
+    alri_print_force(CYN "[ALRI DB]" RST " Starting Sovereign Multi-Model Storage Engine (ARDB v2)...\n");
 
     /* Load ardb.cfg */
     ardb_config_load(NULL, ardb_config_get());
     ArdbConfig *cfg = ardb_config_get();
 
-    /* Initialize security modules */
+    /* Initialize security & autonomous storage modules */
     ardb_auth_init();
     ardb_audit_init(cfg->audit_log);
+    ardb_storage_init();
     ardb_backend_init(cfg->backend_host, cfg->backend_port, cfg->backend_user, cfg->backend_password, cfg->backend_database);
 
-    /* Start PG-Wire server */
+    /* Start PG-Wire server (Port 5432) */
     if (ardb_pgwire_server_start(cfg->server_port) != 0) {
         alri_print(RED "[ALRI DB]" RST " Fatal: Unable to bind PG-Wire server on port %d\n", cfg->server_port);
         return 1;
     }
 
-    /* Start optional HTTP REST server if configured */
+    /* Start Redis RESP Cache engine (Port 6379) */
+    if (cfg->redis_enabled) {
+        if (ardb_redis_server_start(cfg->redis_bind, cfg->redis_port) != 0) {
+            alri_print(RED "[ALRI DB]" RST " Warning: Unable to bind Redis engine on port %d\n", cfg->redis_port);
+        }
+    }
+
+    /* Start HTTP REST server if configured */
     if (cfg->http_enabled) {
         ardb_http_server_start(cfg->http_bind, cfg->http_port);
     }
@@ -262,7 +276,7 @@ int main(int argc, char **argv) {
     /* Start IPC control channel thread */
     ar_thread_create(ardb_ipc_thread, NULL);
 
-    alri_print_force(GRN "[ALRI DB]" RST " Sovereign Data Guardian is ACTIVE and PROTECTED.\n");
+    alri_print_force(GRN "[ALRI DB]" RST " Sovereign Data Guardian v2 is ACTIVE and PROTECTED.\n");
 
     while (g_app_running) {
         ar_sleep_ms(250);
@@ -271,6 +285,9 @@ int main(int argc, char **argv) {
     alri_print_force("[ALRI DB] Stopping Sovereign Database Guardian gracefully...\n");
     ardb_http_server_stop();
     ardb_pgwire_server_stop();
+    ardb_redis_server_stop();
+    ardb_storage_cleanup();
     ardb_audit_cleanup();
+    ardb_auth_cleanup();
     return 0;
 }

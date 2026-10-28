@@ -1,9 +1,10 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #include "ardb_http.h"
@@ -20,9 +21,31 @@
 #include <string.h>
 #include <ctype.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+
 static int g_http_listen_fd = -1;
 static volatile int g_http_running = 0;
 static void *g_http_thread = NULL;
+
+static void configure_http_timeouts(int fd) {
+#ifndef _WIN32
+    struct timeval tv;
+    tv.tv_sec = 10;
+    tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+#else
+    DWORD timeout = 10000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+#endif
+}
 
 static void send_http_response(int client_fd, int status_code, const char *status_text,
                                const char *content_type, const char *body) {
@@ -39,7 +62,9 @@ static void send_http_response(int client_fd, int status_code, const char *statu
         "\r\n",
         status_code, status_text, content_type, body_len);
 
-    ar_socket_send(client_fd, header, hlen);
+    if (hlen > 0) {
+        ar_socket_send(client_fd, header, hlen);
+    }
     if (body_len > 0) {
         ar_socket_send(client_fd, body, (int)body_len);
     }
@@ -73,6 +98,8 @@ static char* extract_json_string(const char *json, const char *key) {
 
 static void* http_client_worker(void *arg) {
     int client_fd = (int)(intptr_t)arg;
+    configure_http_timeouts(client_fd);
+
     char buf[8192];
     int r = ar_socket_recv(client_fd, buf, sizeof(buf) - 1);
     if (r <= 0) {
@@ -100,8 +127,8 @@ static void* http_client_worker(void *arg) {
         char resp_json[512];
         snprintf(resp_json, sizeof(resp_json),
             "{\"status\":\"online\",\"engine\":\"ALRI DB Sovereign Guardian\","
-            "\"pgwire_port\":%d,\"http_port\":%d,\"sql_firewall\":\"%s\",\"audit\":\"active\"}\n",
-            cfg->server_port, cfg->http_port, cfg->sql_firewall);
+            "\"pgwire_port\":%d,\"redis_port\":%d,\"http_port\":%d,\"sql_firewall\":\"%s\",\"audit\":\"active\"}\n",
+            cfg->server_port, cfg->redis_port, cfg->http_port, cfg->sql_firewall);
         send_http_response(client_fd, 200, "OK", "application/json", resp_json);
         ar_socket_close(client_fd);
         return NULL;
@@ -111,7 +138,6 @@ static void* http_client_worker(void *arg) {
     if (strcmp(method, "POST") == 0 &&
         (strstr(path, "/query") || strstr(path, "/execute"))) {
 
-        /* Extrair Token de Autenticação */
         char token[128] = {0};
         char *tok_hdr = strstr(buf, "X-ARDB-Token:");
         if (!tok_hdr) tok_hdr = strstr(buf, "x-ardb-token:");
@@ -145,7 +171,6 @@ static void* http_client_worker(void *arg) {
             }
         }
 
-        /* Obter body JSON */
         char *body = strstr(buf, "\r\n\r\n");
         if (!body) {
             send_http_response(client_fd, 400, "Bad Request", "application/json", "{\"error\":\"Missing body\"}\n");
@@ -162,6 +187,17 @@ static void* http_client_worker(void *arg) {
             return NULL;
         }
 
+        ardb_provenance_context_t pctx;
+        memset(&pctx, 0, sizeof(pctx));
+        snprintf(pctx.app_id, sizeof(pctx.app_id), "%s", user);
+        snprintf(pctx.actor_id, sizeof(pctx.actor_id), "%s", user);
+        snprintf(pctx.tenant_id, sizeof(pctx.tenant_id), "%s", tenant);
+        snprintf(pctx.client_ip, sizeof(pctx.client_ip), "%s", "127.0.0.1");
+        pctx.timestamp_nanos = ardb_time_now_nanos();
+
+        /* Inspeciona proveniência na query se houver comentário */
+        ardb_provenance_parse_comment(sql, &pctx);
+
         uint64_t start_us = (uint64_t)ar_time_ms() * 1000;
         char rewritten[2048];
         char reason[512] = {0};
@@ -171,8 +207,8 @@ static void* http_client_worker(void *arg) {
                                                  reason, sizeof(reason));
 
         if (act != ARDB_FW_OK) {
-            ardb_audit_log_query(user, tenant, "127.0.0.1",
-                                 sql, 403, (uint64_t)ar_time_ms() * 1000 - start_us);
+            ardb_audit_log_record(&pctx, (uint16_t)ARDB_OP_SECURITY_ALERT, 0, 0,
+                                  (uint32_t)((uint64_t)ar_time_ms() * 1000 - start_us), sql);
             char err_json[512];
             snprintf(err_json, sizeof(err_json), "{\"error\":\"SQL Firewall Blocked: %s\"}\n", reason);
             send_http_response(client_fd, 403, "Forbidden", "application/json", err_json);
@@ -181,32 +217,39 @@ static void* http_client_worker(void *arg) {
             return NULL;
         }
 
-        /* Execução da consulta via ARDB Storage Engine */
+        /* Execução da consulta via motor autônomo */
         ArdbQueryResult qres;
-        ardb_storage_execute_query("postgres", rewritten, &qres);
+        ardb_storage_execute_query("ardb_master", rewritten, &qres);
 
-        char resp_body[16384] = "{\"status\":\"success\",\"rows\":[";
-        for (int r = 0; r < qres.row_count; r++) {
-            if (r > 0) strcat(resp_body, ",");
-            strcat(resp_body, "{");
-            for (int c = 0; c < qres.column_count; c++) {
-                if (c > 0) strcat(resp_body, ",");
-                char item[1024];
-                snprintf(item, sizeof(item), "\"%s\":\"%s\"", qres.columns[c].name,
-                         qres.rows[r].fields[c] ? qres.rows[r].fields[c] : "");
-                strcat(resp_body, item);
+        char resp_body[16384];
+        size_t off = 0;
+        int n = snprintf(resp_body + off, sizeof(resp_body) - off, "{\"status\":\"success\",\"rows\":[");
+        if (n > 0) off += (size_t)n;
+
+        for (int r_idx = 0; r_idx < qres.row_count && off < sizeof(resp_body) - 256; r_idx++) {
+            n = snprintf(resp_body + off, sizeof(resp_body) - off, "%s{", (r_idx > 0) ? "," : "");
+            if (n > 0) off += (size_t)n;
+
+            for (int c_idx = 0; c_idx < qres.column_count && off < sizeof(resp_body) - 256; c_idx++) {
+                n = snprintf(resp_body + off, sizeof(resp_body) - off, "%s\"%s\":\"%s\"",
+                             (c_idx > 0) ? "," : "",
+                             qres.columns[c_idx].name,
+                             qres.rows[r_idx].fields[c_idx] ? qres.rows[r_idx].fields[c_idx] : "");
+                if (n > 0) off += (size_t)n;
             }
-            strcat(resp_body, "}");
-            if (strlen(resp_body) > 15000) break;
+
+            n = snprintf(resp_body + off, sizeof(resp_body) - off, "}");
+            if (n > 0) off += (size_t)n;
         }
-        char tail[128];
-        snprintf(tail, sizeof(tail), "],\"row_count\":%d}\n", qres.row_count);
-        strcat(resp_body, tail);
+
+        n = snprintf(resp_body + off, sizeof(resp_body) - off, "],\"row_count\":%d}\n", qres.row_count);
+        if (n > 0) off += (size_t)n;
+
+        uint16_t op = (qres.column_count > 0) ? (uint16_t)ARDB_OP_SELECT : (uint16_t)ARDB_OP_UPDATE;
+        ardb_audit_log_record(&pctx, op, qres.rows_read, qres.rows_written,
+                              (uint32_t)((uint64_t)ar_time_ms() * 1000 - start_us), rewritten);
+
         ardb_storage_free_result(&qres);
-
-        ardb_audit_log_query(user, tenant, "127.0.0.1",
-                             rewritten, 200, (uint64_t)ar_time_ms() * 1000 - start_us);
-
         send_http_response(client_fd, 200, "OK", "application/json", resp_body);
         free(sql);
         ar_socket_close(client_fd);
@@ -222,30 +265,32 @@ static void* http_listen_worker(void *arg) {
     (void)arg;
     while (g_http_running) {
         int client_fd = ar_socket_accept(g_http_listen_fd);
-        if (client_fd >= 0) {
-            ar_thread_create(http_client_worker, (void*)(intptr_t)client_fd);
-        } else {
-            ar_sleep_ms(10);
+        if (client_fd < 0) {
+            if (g_http_running) ar_sleep_ms(50);
+            continue;
         }
+        ar_thread_create(http_client_worker, (void*)(intptr_t)client_fd);
     }
     return NULL;
 }
 
-int ardb_http_server_start(const char *bind_ip, int port) {
+int ardb_http_server_start(const char *bind_addr, int port) {
     if (g_http_running) return 0;
-
+#ifdef _WIN32
     g_http_listen_fd = ar_socket_create(1);
+#else
+    g_http_listen_fd = ar_socket_create(SOCK_STREAM);
+#endif
     if (g_http_listen_fd < 0) return -1;
 
     ar_socket_reuseaddr(g_http_listen_fd, 1);
-
-    if (ar_socket_bind(g_http_listen_fd, bind_ip ? bind_ip : "127.0.0.1", port) != 0) {
+    if (ar_socket_bind(g_http_listen_fd, bind_addr, (uint16_t)port) != 0) {
         ar_socket_close(g_http_listen_fd);
         g_http_listen_fd = -1;
         return -1;
     }
 
-    if (ar_socket_listen(g_http_listen_fd, 128) != 0) {
+    if (ar_socket_listen(g_http_listen_fd, 64) != 0) {
         ar_socket_close(g_http_listen_fd);
         g_http_listen_fd = -1;
         return -1;
@@ -253,7 +298,7 @@ int ardb_http_server_start(const char *bind_ip, int port) {
 
     g_http_running = 1;
     g_http_thread = ar_thread_create(http_listen_worker, NULL);
-    alri_print(GRN "[ARDB-HTTP]" RST " REST API Gateway listening on %s:%d\n", bind_ip ? bind_ip : "127.0.0.1", port);
+    alri_print_force(CYN "[ARDB-HTTP]" RST " Embedded REST micro-server listening on http://%s:%d\n", bind_addr, port);
     return 0;
 }
 
@@ -264,7 +309,6 @@ void ardb_http_server_stop(void) {
         ar_socket_close(g_http_listen_fd);
         g_http_listen_fd = -1;
     }
-    alri_print(CYN "[ARDB-HTTP]" RST " REST API Gateway stopped.\n");
 }
 
 int ardb_http_is_running(void) {

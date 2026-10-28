@@ -1,9 +1,10 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #include "ardb_auth.h"
@@ -21,7 +22,6 @@ static int g_token_count = 0;
 static void *g_auth_mutex = NULL;
 static int g_auth_initialized = 0;
 
-/* Compute SHA256 hash with salt for secure credential storage */
 static void compute_hash(const char *password, const char *salt, char *out_hex, size_t out_size) {
     char combined[256];
     snprintf(combined, sizeof(combined), "%s:%s:alrios_salt", password, salt);
@@ -33,20 +33,16 @@ static void compute_hash(const char *password, const char *salt, char *out_hex, 
     }
 }
 
-/* Constant-time memory comparison to mitigate Timing Attacks */
-static int constant_time_compare(const char *a, const char *b) {
-    if (!a || !b) return 0;
-    size_t len_a = strlen(a);
-    size_t len_b = strlen(b);
-    int result = (len_a == len_b) ? 0 : 1;
-
-    size_t max_len = len_a > len_b ? len_a : len_b;
-    for (size_t i = 0; i < max_len; i++) {
-        char ca = (i < len_a) ? a[i] : 0;
-        char cb = (i < len_b) ? b[i] : 0;
-        result |= (ca ^ cb);
+int ardb_auth_validate_token_ct(const char *token_a, const char *token_b) {
+    if (!token_a || !token_b) return -1;
+    size_t la = strlen(token_a);
+    size_t lb = strlen(token_b);
+    int diff = (la != lb);
+    size_t min_len = la < lb ? la : lb;
+    for (size_t i = 0; i < min_len; i++) {
+        diff |= (token_a[i] ^ token_b[i]);
     }
-    return (result == 0);
+    return diff == 0 ? 0 : -1;
 }
 
 void ardb_auth_init(void) {
@@ -85,8 +81,8 @@ int ardb_auth_add_user(const char *username, const char *password, const char *t
     for (int i = 0; i < g_user_count; i++) {
         if (strcmp(g_users[i].username, username) == 0) {
             compute_hash(password, username, g_users[i].password_hash, sizeof(g_users[i].password_hash));
-            if (tenant_id) strncpy(g_users[i].tenant_id, tenant_id, sizeof(g_users[i].tenant_id) - 1);
-            if (role) strncpy(g_users[i].role, role, sizeof(g_users[i].role) - 1);
+            if (tenant_id) snprintf(g_users[i].tenant_id, sizeof(g_users[i].tenant_id), "%s", tenant_id);
+            if (role) snprintf(g_users[i].role, sizeof(g_users[i].role), "%s", role);
             g_users[i].is_active = 1;
             ar_mutex_unlock(g_auth_mutex);
             return 0;
@@ -100,10 +96,10 @@ int ardb_auth_add_user(const char *username, const char *password, const char *t
 
     ArdbUser *u = &g_users[g_user_count++];
     memset(u, 0, sizeof(ArdbUser));
-    strncpy(u->username, username, sizeof(u->username) - 1);
+    snprintf(u->username, sizeof(u->username), "%s", username);
     compute_hash(password, username, u->password_hash, sizeof(u->password_hash));
-    strncpy(u->tenant_id, tenant_id ? tenant_id : "default", sizeof(u->tenant_id) - 1);
-    strncpy(u->role, role ? role : "operator", sizeof(u->role) - 1);
+    snprintf(u->tenant_id, sizeof(u->tenant_id), "%s", tenant_id ? tenant_id : "default");
+    snprintf(u->role, sizeof(u->role), "%s", role ? role : "operator");
     u->is_active = 1;
 
     ar_mutex_unlock(g_auth_mutex);
@@ -141,7 +137,7 @@ int ardb_auth_generate_token(const char *username, const char *password, const c
 
     for (int i = 0; i < g_user_count; i++) {
         if (g_users[i].is_active && strcmp(g_users[i].username, username) == 0) {
-            if (!password || constant_time_compare(g_users[i].password_hash, target_hash)) {
+            if (!password || ardb_auth_validate_token_ct(g_users[i].password_hash, target_hash) == 0) {
                 matched = &g_users[i];
             }
             break;
@@ -174,15 +170,14 @@ int ardb_auth_generate_token(const char *username, const char *password, const c
     snprintf(t->token, sizeof(t->token), "ardb_tok_%08x%08x%08x%08x",
              (uint32_t)rand(), (uint32_t)rand(), (uint32_t)now_ms, (uint32_t)slot);
 
-    strncpy(t->username, matched->username, sizeof(t->username) - 1);
-    strncpy(t->tenant_id, matched->tenant_id, sizeof(t->tenant_id) - 1);
-    strncpy(t->role, matched->role, sizeof(t->role) - 1);
+    snprintf(t->username, sizeof(t->username), "%.63s", matched->username);
+    snprintf(t->tenant_id, sizeof(t->tenant_id), "%.63s", matched->tenant_id);
+    snprintf(t->role, sizeof(t->role), "%.31s", matched->role);
     t->created_at_ms = now_ms;
     t->expires_at_ms = now_ms + ((uint64_t)ttl_seconds * 1000);
     t->is_revoked = 0;
 
-    strncpy(out_token, t->token, out_token_size - 1);
-    out_token[out_token_size - 1] = '\0';
+    snprintf(out_token, out_token_size, "%s", t->token);
 
     if (slot >= g_token_count) g_token_count = slot + 1;
 
@@ -199,15 +194,21 @@ int ardb_auth_verify_token(const char *token, char *out_user, char *out_tenant, 
 
     for (int i = 0; i < ARDB_MAX_ACTIVE_TOKENS; i++) {
         ArdbSessionToken *t = &g_tokens[i];
-        if (t->token[0] != '\0' && !t->is_revoked && strcmp(t->token, token) == 0) {
+        if (t->token[0] != '\0' && !t->is_revoked && ardb_auth_validate_token_ct(t->token, token) == 0) {
             if (t->expires_at_ms < now_ms) {
                 t->is_revoked = 1; /* Expired */
                 ar_mutex_unlock(g_auth_mutex);
                 return -1;
             }
-            if (out_user) strncpy(out_user, t->username, 63);
-            if (out_tenant) strncpy(out_tenant, t->tenant_id, 63);
-            if (out_role) strncpy(out_role, t->role, 31);
+            if (out_user) {
+                snprintf(out_user, 64, "%s", t->username);
+            }
+            if (out_tenant) {
+                snprintf(out_tenant, 64, "%s", t->tenant_id);
+            }
+            if (out_role) {
+                snprintf(out_role, 32, "%s", t->role);
+            }
             ar_mutex_unlock(g_auth_mutex);
             return 0; /* Valid token */
         }
@@ -223,7 +224,7 @@ int ardb_auth_revoke_token(const char *token) {
 
     ar_mutex_lock(g_auth_mutex);
     for (int i = 0; i < ARDB_MAX_ACTIVE_TOKENS; i++) {
-        if (strcmp(g_tokens[i].token, token) == 0) {
+        if (ardb_auth_validate_token_ct(g_tokens[i].token, token) == 0) {
             g_tokens[i].is_revoked = 1;
             ar_mutex_unlock(g_auth_mutex);
             return 0;
@@ -259,17 +260,16 @@ int ardb_auth_create_group(const char *group_name, const char *tables_csv) {
 
     ArdbAppGroup *g = &g_groups[slot];
     memset(g, 0, sizeof(ArdbAppGroup));
-    strncpy(g->name, group_name, sizeof(g->name) - 1);
+    snprintf(g->name, sizeof(g->name), "%s", group_name);
 
     if (tables_csv) {
         char buf[512];
-        strncpy(buf, tables_csv, sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
+        snprintf(buf, sizeof(buf), "%s", tables_csv);
         char *token = strtok(buf, ",");
         while (token && g->table_count < ARDB_MAX_GROUP_TABLES) {
             while (*token == ' ') token++;
             if (token[0] != '\0') {
-                strncpy(g->tables[g->table_count++], token, 63);
+                snprintf(g->tables[g->table_count++], 64, "%s", token);
             }
             token = strtok(NULL, ",");
         }
@@ -293,7 +293,7 @@ int ardb_auth_add_app_to_group(const char *group_name, const char *app_name) {
                 }
             }
             if (g_groups[i].app_count < ARDB_MAX_GROUP_APPS) {
-                strncpy(g_groups[i].apps[g_groups[i].app_count++], app_name, 63);
+                snprintf(g_groups[i].apps[g_groups[i].app_count++], 64, "%s", app_name);
             }
             ar_mutex_unlock(g_auth_mutex);
             return 0;
@@ -318,20 +318,19 @@ int ardb_auth_add_app(const char *app_name, const char *token_or_secret, const c
             ArdbUser *u = &g_users[i];
             if (tables_csv) {
                 char buf[512];
-                strncpy(buf, tables_csv, sizeof(buf) - 1);
-                buf[sizeof(buf) - 1] = '\0';
+                snprintf(buf, sizeof(buf), "%s", tables_csv);
                 char *tok = strtok(buf, ",");
                 while (tok && u->allowed_table_count < 32) {
                     while (*tok == ' ') tok++;
                     if (tok[0] != '\0') {
-                        strncpy(u->allowed_tables[u->allowed_table_count++], tok, 63);
+                        snprintf(u->allowed_tables[u->allowed_table_count++], 64, "%s", tok);
                     }
                     tok = strtok(NULL, ",");
                 }
             }
             if (group_name && group_name[0]) {
                 if (u->app_group_count < 8) {
-                    strncpy(u->app_groups[u->app_group_count++], group_name, 63);
+                    snprintf(u->app_groups[u->app_group_count++], 64, "%s", group_name);
                 }
             }
             break;
@@ -372,10 +371,11 @@ int ardb_auth_is_table_allowed(const char *app_name, const char *role, const cha
                 }
             }
 
-            /* 3. Check App Groups (Shared Data Spaces e.g. "loja") */
-            for (int ug = 0; ug < g_users[i].app_group_count; ug++) {
+            /* 3. Check App Groups shared tables */
+            for (int g = 0; g < g_users[i].app_group_count; g++) {
+                const char *grp_name = g_users[i].app_groups[g];
                 for (int gi = 0; gi < g_group_count; gi++) {
-                    if (strcmp(g_groups[gi].name, g_users[i].app_groups[ug]) == 0) {
+                    if (strcmp(g_groups[gi].name, grp_name) == 0) {
                         for (int gt = 0; gt < g_groups[gi].table_count; gt++) {
                             if (strcmp(g_groups[gi].tables[gt], table_name) == 0 ||
                                 strcmp(g_groups[gi].tables[gt], "*") == 0) {

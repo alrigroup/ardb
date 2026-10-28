@@ -1,9 +1,10 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #ifndef ARDB_BACKEND_H
@@ -13,8 +14,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define ARDB_BACKEND_DEFAULT_HOST "127.0.0.1"
-#define ARDB_BACKEND_DEFAULT_PORT 5433 /* Porta privada e isolada do Postgres nativo */
 #define ARDB_BACKEND_POOL_SIZE 16
 
 typedef struct {
@@ -29,15 +28,15 @@ typedef struct {
     uint64_t last_used_ms;
 } ArdbBackendConn;
 
-/* Configuração e Inicialização do Pool de Conexões do Backend */
+/* Inicialização do motor embutido autônomo (Zero dependência externa na porta 5433) */
 int ardb_backend_init(const char *host, int port, const char *user, const char *password, const char *database);
 void ardb_backend_cleanup(void);
 
-/* Adquire uma conexão ativa com o PostgreSQL nativo isolado */
+/* Adquire conexão com o motor relacional embutido */
 ArdbBackendConn* ardb_backend_acquire(void);
 void ardb_backend_release(ArdbBackendConn *conn);
 
-/* Encaminha a query sanitizada/reescrita para o PostgreSQL e transmite os pacotes de resposta ao cliente */
+/* Executa a query no motor relacional embutido e transmite o resultado via PGWire */
 int ardb_backend_relay_query(ArdbBackendConn *conn, const char *sql_query, int client_fd);
 
 #endif /* ARDB_BACKEND_H */

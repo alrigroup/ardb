@@ -11,13 +11,15 @@
 
 ## 1. Project Mission & Identity
 
-**ARDB** is the sovereign database security proxy and execution engine for the ALRIOS platform. It acts as an active security shield between external database clients (DBeaver, ORMs, microservices) and the isolated physical PostgreSQL backend.
+**ARDB v2** is the sovereign multi-model persistence and low-latency cache authority for the ALRIOS platform. It provides an autonomous, embedded multi-model engine written in pure C11 serving relational SQL (PGWire v3.0 on port 5432), in-memory cache (Redis RESP on port 6379), and HTTP REST (port 5435) with zero external daemon dependencies.
 
 ### Core Architectural Specifications
-- **Loopback Isolation Mandate**: The physical PostgreSQL database runs exclusively on loopback TCP `127.0.0.1:5433` without public interface exposure. All queries must route through ARDB on port `5432` (PGWire) or `5435` (HTTP REST).
-- **Native PGWire Protocol v3.0 (`ardb_pgwire.c`)**: Complete implementation of PostgreSQL wire protocol messages (`StartupMessage`, `AuthenticationOk`, `RowDescription`, `DataRow`, `CommandComplete`, `ReadyForQuery`).
-- **SQL AST Firewall (`ardb_firewall.c`)**: Syntax-level query inspection blocking destructive DDL (`DROP`, `TRUNCATE`, `ALTER SYSTEM`) for non-admin profiles and injecting multi-tenant Row-Level Security (`SET LOCAL alri.tenant_id = '...'`).
-- **Cryptographic Audit Log (`ardb_audit.c`)**: Blockchain-style SHA-256 hash-chained log guaranteeing tamper detection and forensic non-repudiation.
+- **Autonomous Embedded Persistence**: Zero external dependency on PostgreSQL daemons on port 5433. Relational persistence is 100% autonomous and embedded, powered by integrated SQLite with WAL2 mode (`storage/<app>/data.db`).
+- **Native PGWire Protocol v3.0 (`ardb_pgwire.c`)**: PostgreSQL wire protocol v3.0 parser and state machine (`StartupMessage`, `AuthenticationOk`, `RowDescription`, `DataRow`, `CommandComplete`, `ReadyForQuery`).
+- **Redis RESP Engine (`ardb_redis.c`)**: Concurrent in-memory cache engine on port 6379 supporting `PING`, `GET`, `SET`, `EXPIRE`, `TTL`, `DEL`.
+- **Mandatory Provenance Envelope (`ardb_provenance.c`)**: Zero-Unattributed I/O Mandate (Axiom I) blocking any un-attested query with `ARDB_ERR_UNATTESTED_QUERY` (`58004`).
+- **Total Read & Write Forensic Auditing (`ardb_audit.c`)**: Blockchain-style SHA-256 continuous hash-chained log guaranteeing tamper detection and forensic non-repudiation. Every command, including `SELECT` and `GET`, records row counts.
+- **SQL AST Firewall (`ardb_firewall.c`)**: Syntax-level query inspection blocking destructive DDL (`DROP`, `TRUNCATE`, `ALTER SYSTEM`) for non-admin profiles with code `42501`.
 - **App Table Isolation & Shared Groups (`ardb_auth.c`)**: Enforces namespace boundaries (`<app>_*` tables) and shared data spaces via App Groups with strict table ACLs.
 
 ---
@@ -27,18 +29,23 @@
 ```
 ardb/
 ├── ardb.arappmake           # ALRIOS package manifest & compilation rules
-├── ardb.cfg                 # Master configuration (server, backend, firewall, audit)
-├── DOCS.md                  # Complete 590+ lines technical reference manual
+├── ardb.cfg                 # Master configuration (server, redis, backend, firewall, audit)
+├── DOCS.md                  # Complete technical reference manual
 ├── README.md                # Public overview & operational guide
 ├── AGENTS.md                # This autonomous agent operating protocol
+├── SPEC.MD                  # Formal Technical Specification ALRI-SPEC-DATA-2026-ARDB-V2
+├── tests/
+│   └── test_ardb_v2.py      # Comprehensive functional and forensic validation suite
 └── src/
-    ├── ardb_entry.c         # Process bootstrap, PGWire listener thread, CLI command dispatcher
-    ├── ardb_auth.c / .h     # User authentication, 2FA TOTP, session tokens, table ACLs
+    ├── ardb_entry.c         # Process bootstrap, protocol listener threads, CLI dispatcher
+    ├── ardb_provenance.c/.h # Mandatory Provenance Envelope & Zero-Unattributed I/O validator
+    ├── ardb_pgwire.c / .h   # PostgreSQL wire protocol v3.0 message parser and serializer (Port 5432)
+    ├── ardb_redis.c / .h    # Redis RESP v2/v3 cache engine (Port 6379)
+    ├── ardb_storage_engine.c/.h # Autonomous embedded relational engine (SQLite/WAL2)
+    ├── ardb_backend.c / .h  # Embedded backend coordinator (zero external 5433 dependency)
+    ├── ardb_auth.c / .h     # User authentication, constant-time token verification, table ACLs
     ├── ardb_firewall.c / .h # AST query inspection, DDL blocking, tenant RLS injection
-    ├── ardb_pgwire.c / .h   # PostgreSQL wire protocol v3.0 message parser and serializer
-    ├── ardb_backend.c / .h  # Connection pool (16 sockets) to isolated PostgreSQL on port 5433
-    ├── ardb_storage_engine.c / .h # In-memory tabular result sets and PostgreSQL OID mapping
-    ├── ardb_audit.c / .h    # SHA-256 chained immutable forensic query logger
+    ├── ardb_audit.c / .h    # SHA-256 chained immutable forensic query logger (read/write metrics)
     ├── ardb_http.c / .h     # Embedded REST micro-server on port 5435 (/api/v1/db/*)
     └── ardb_config.c / .h   # Parser for ardb.cfg with live hot-reloading support
 ```
@@ -47,15 +54,17 @@ ardb/
 
 ## 3. Essential Commands & Toolchain Invariants
 
-### 3.1 Compilation from Source (Linux x64)
+### 3.1 Compilation from Source (Strict C11)
 ```bash
-gcc -O2 \
-  -Isrc -I../../ALRIOS/core -I../../ALRIOS/arkernel/include -I../../ALRIOS/arkernel/os/include \
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -O2 \
+  -Isrc -I$ARCORE/include \
   -o ardb \
-  src/ardb_entry.c src/ardb_config.c src/ardb_http.c src/ardb_pgwire.c \
-  src/ardb_storage_engine.c src/ardb_backend.c src/ardb_auth.c \
-  src/ardb_firewall.c src/ardb_audit.c \
-  -L../../ALRIOS/arcore/lib -larkernel -lssl -lcrypto -lpthread
+  src/ardb_entry.c src/ardb_config.c src/ardb_http.c \
+  src/ardb_pgwire.c src/ardb_redis.c src/ardb_provenance.c \
+  src/ardb_storage_engine.c src/ardb_backend.c \
+  src/ardb_auth.c src/ardb_firewall.c src/ardb_audit.c \
+  -L$ARCORE/lib -Wl,--start-group -larkernel -larhal -larlog -laripc_v2 -Wl,--end-group \
+  -lsqlite3 -lssl -lcrypto -lpthread
 ```
 
 ### 3.2 Packaging into ALRIOS Modular Archive (`.arapp`)

@@ -1,9 +1,10 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #ifndef ARDB_AUTH_H
@@ -66,7 +67,8 @@ int ardb_auth_add_app_to_group(const char *group_name, const char *app_name);
 /* Verificação de Permissão de Tabelas */
 int ardb_auth_is_table_allowed(const char *app_name, const char *role, const char *table_name);
 
-/* Validação de Senha / Token Efêmero */
+/* Validação de Senha / Token Efêmero em Tempo Constante */
+int ardb_auth_validate_token_ct(const char *token_a, const char *token_b);
 int ardb_auth_verify_token(const char *token, char *out_user, char *out_tenant, char *out_role);
 int ardb_auth_generate_token(const char *username, const char *password, const char *totp_code,
                              int ttl_seconds, char *out_token, size_t out_token_size);

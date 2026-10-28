@@ -1,17 +1,18 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #include "ardb_firewall.h"
+#include "ardb_auth.h"
+#include "ardb_audit.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
-
-#include "ardb_auth.h"
 
 /* Convert string to lowercase for keyword analysis */
 static void to_lower_str(const char *src, char *dst, size_t dst_size) {
@@ -58,14 +59,14 @@ ArdbFwAction ardb_firewall_inspect(const char *raw_sql, const char *tenant_id, c
     char lower[2048];
     to_lower_str(raw_sql, lower, sizeof(lower));
 
-    /* 1. Block destructive DDL/DML commands for non-admin roles */
+    /* 1. Block destructive DDL/DML commands for non-admin roles (Axiom V) */
     int is_admin = (role && strcmp(role, "admin") == 0);
     if (!is_admin) {
         if (strstr(lower, "drop table") || strstr(lower, "drop database") ||
             strstr(lower, "alter system") || strstr(lower, "truncate ") ||
             strstr(lower, "drop schema") || strstr(lower, "grant all") ||
             strstr(lower, "shutdown") || strstr(lower, "copy to program")) {
-            
+
             if (out_reason) {
                 snprintf(out_reason, out_reason_size,
                          "ERROR: 42501: Permission denied by ALRI Firewall (Destructive DDL/DML command)");
@@ -88,7 +89,8 @@ ArdbFwAction ardb_firewall_inspect(const char *raw_sql, const char *tenant_id, c
                 tbl[ti] = '\0';
                 if (ti > 0 && strncmp(tbl, "pg_", 3) != 0 &&
                     strncmp(tbl, "information_schema", 18) != 0 &&
-                    strncmp(tbl, "pg_catalog", 10) != 0) {
+                    strncmp(tbl, "pg_catalog", 10) != 0 &&
+                    strncmp(tbl, "sqlite_", 7) != 0) {
                     if (role && strcmp(role, "admin") != 0 && !ardb_auth_is_table_allowed(tenant_id, role, tbl)) {
                         if (out_reason) {
                             snprintf(out_reason, out_reason_size,
@@ -121,4 +123,20 @@ ArdbFwAction ardb_firewall_inspect(const char *raw_sql, const char *tenant_id, c
     out_rewritten_sql[out_size - 1] = '\0';
 
     return ARDB_FW_OK;
+}
+
+int ardb_firewall_inspect_provenance(const char *raw_sql, const ardb_provenance_context_t *ctx) {
+    if (!raw_sql || !ctx) return ARDB_ERR_INVALID_ARGUMENT;
+
+    char lower[2048];
+    to_lower_str(raw_sql, lower, sizeof(lower));
+
+    if (strstr(lower, "drop") || strstr(lower, "truncate") || strstr(lower, "alter system")) {
+        if (!ctx->is_system_actor && strcmp(ctx->actor_id, "admin") != 0) {
+            ardb_audit_log_security_alert(ctx, "DDL_BLOCKED", raw_sql);
+            return ARDB_ERR_FIREWALL_DDL_BLOCKED;
+        }
+    }
+
+    return ARDB_OK;
 }

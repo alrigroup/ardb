@@ -1,9 +1,10 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #include "ardb_config.h"
@@ -32,11 +33,15 @@ static void set_defaults(ArdbConfig *cfg) {
     strncpy(cfg->server_bind, "0.0.0.0", sizeof(cfg->server_bind) - 1);
     cfg->max_connections = 1024;
 
-    strncpy(cfg->backend_host, "127.0.0.1", sizeof(cfg->backend_host) - 1);
-    cfg->backend_port = 5433;
+    cfg->redis_enabled = 1;
+    cfg->redis_port = 6379;
+    strncpy(cfg->redis_bind, "0.0.0.0", sizeof(cfg->redis_bind) - 1);
+
+    strncpy(cfg->backend_host, "embedded://sqlite3-wal2", sizeof(cfg->backend_host) - 1);
+    cfg->backend_port = 0;
     strncpy(cfg->backend_user, "postgres", sizeof(cfg->backend_user) - 1);
     strncpy(cfg->backend_password, "postgres", sizeof(cfg->backend_password) - 1);
-    strncpy(cfg->backend_database, "postgres", sizeof(cfg->backend_database) - 1);
+    strncpy(cfg->backend_database, "ardb_master", sizeof(cfg->backend_database) - 1);
 
     cfg->http_enabled = 1;
     strncpy(cfg->http_bind, "127.0.0.1", sizeof(cfg->http_bind) - 1);
@@ -63,7 +68,6 @@ int ardb_config_load(const char *cfg_path, ArdbConfig *out_cfg) {
         "../storage/ardb/ardb.cfg",
         "../../storage/ardb/ardb.cfg",
         "arcore/programfiles/ardb/ardb.cfg",
-        "/mnt/HD/ALRIGROUP/local/alrios/arcore/storage/ardb/ardb.cfg",
         NULL
     };
 
@@ -73,12 +77,12 @@ int ardb_config_load(const char *cfg_path, ArdbConfig *out_cfg) {
         f = fopen(paths_to_try[i], "r");
         if (f) {
             strncpy(g_last_cfg_path, paths_to_try[i], sizeof(g_last_cfg_path) - 1);
+            g_last_cfg_path[sizeof(g_last_cfg_path) - 1] = '\0';
             break;
         }
     }
 
     if (!f) {
-        /* Usa defaults */
         return 0;
     }
 
@@ -91,6 +95,7 @@ int ardb_config_load(const char *cfg_path, ArdbConfig *out_cfg) {
 
         if (line[0] == '[' && line[strlen(line) - 1] == ']') {
             strncpy(section, line + 1, sizeof(section) - 1);
+            section[sizeof(section) - 1] = '\0';
             section[strlen(section) - 1] = '\0';
             trim(section);
             continue;
@@ -108,6 +113,14 @@ int ardb_config_load(const char *cfg_path, ArdbConfig *out_cfg) {
             if (strcmp(key, "port") == 0) out_cfg->server_port = atoi(val);
             else if (strcmp(key, "bind") == 0) strncpy(out_cfg->server_bind, val, sizeof(out_cfg->server_bind) - 1);
             else if (strcmp(key, "max_connections") == 0) out_cfg->max_connections = atoi(val);
+        } else if (strcmp(section, "redis") == 0) {
+            if (strcmp(key, "enabled") == 0) {
+                out_cfg->redis_enabled = (strcmp(val, "yes") == 0 || strcmp(val, "true") == 0 || strcmp(val, "1") == 0);
+            } else if (strcmp(key, "port") == 0) {
+                out_cfg->redis_port = atoi(val);
+            } else if (strcmp(key, "bind") == 0) {
+                strncpy(out_cfg->redis_bind, val, sizeof(out_cfg->redis_bind) - 1);
+            }
         } else if (strcmp(section, "backend") == 0) {
             if (strcmp(key, "host") == 0) strncpy(out_cfg->backend_host, val, sizeof(out_cfg->backend_host) - 1);
             else if (strcmp(key, "port") == 0) out_cfg->backend_port = atoi(val);
@@ -145,10 +158,6 @@ ArdbConfig* ardb_config_get(void) {
 }
 
 int ardb_config_reload(const char *cfg_path) {
-    ArdbConfig tmp;
-    if (ardb_config_load(cfg_path, &tmp) == 0) {
-        memcpy(&g_config, &tmp, sizeof(g_config));
-        return 0;
-    }
-    return -1;
+    const char *p = (cfg_path && cfg_path[0]) ? cfg_path : g_last_cfg_path;
+    return ardb_config_load(p, &g_config);
 }

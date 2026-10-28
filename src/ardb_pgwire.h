@@ -1,15 +1,18 @@
 /*
- * Copyright (c) ALRIGROUP and its affiliates.
+ * Copyright (c) 2026 ALRIGROUP and its affiliates.
+ * Engineered and maintained by ALRI Development.
  *
- * This code is licensed under the ARGLR - ALRI GROUP LICENSE RESERVED
+ * This code is licensed under the ARGLP - ALRI GROUP LICENSE PERMISSIVE
  * found in the LICENSE file in the root directory of this source tree
- * and at: https://github.com/alrigroup/licenses/tree/main
+ * and at: https://github.com/alrigroup/licenses
  */
 
 #ifndef ARDB_PGWIRE_H
 #define ARDB_PGWIRE_H
 
 #include "aros_hal.h"
+#include "ardb_provenance.h"
+#include "ardb_storage_engine.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -18,7 +21,6 @@
 #define ARDB_MAX_SESSION_TOKEN_LEN 128
 #define ARDB_MAX_USER_LEN 64
 #define ARDB_MAX_DATABASE_LEN 64
-#define ARDB_MAX_TENANT_LEN 64
 
 /* Protocolo PG-Wire Códigos de Mensagem */
 #define PG_MSG_STARTUP_V3 0x00030000
@@ -64,11 +66,14 @@ typedef struct {
     char tx_status;
     uint64_t session_start_ms;
     char prepared_query[2048];
+    ardb_provenance_context_t prov_ctx;
+    int provenance_attested;
 } ArdbClientSession;
 
 /* Inicialização do Gateway PG-Wire */
 int ardb_pgwire_server_start(int port);
 void ardb_pgwire_server_stop(void);
+int ardb_pgwire_is_running(void);
 
 /* Funções de Construção de Pacotes PG-Wire */
 int ardb_pgwire_send_auth_ok(int fd);
@@ -79,5 +84,6 @@ int ardb_pgwire_send_backend_key_data(int fd, uint32_t pid, uint32_t key);
 int ardb_pgwire_send_ready_for_query(int fd, char tx_status);
 int ardb_pgwire_send_error(int fd, const char *severity, const char *code, const char *message);
 int ardb_pgwire_send_command_complete(int fd, const char *tag);
+int ardb_pgwire_send_query_result(int fd, ArdbQueryResult *res);
 
 #endif /* ARDB_PGWIRE_H */
